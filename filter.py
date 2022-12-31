@@ -78,7 +78,7 @@ def safeJson(filtered, filename):
             f.write(os.linesep)
 
 
-def main():
+def getJSON():
     #url = "http://snap.stanford.edu/data/amazon/productGraph/categoryFiles/meta_Electronics.json.gz"
     #filename = downloadData(url)
     filename = "meta_Electronics.json.gz"
@@ -87,6 +87,3 @@ def main():
     filtered = filterJson(data, extrema_dict)
     filename = "filtered_" + os.path.splitext(filename)[0]
     safeJson(filtered, filename)
-
-if __name__ == "__main__":
-    main()
