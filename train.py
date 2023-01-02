@@ -5,6 +5,7 @@ from model import *
 from inference import *
 import os
 from ray import tune
+import logging
 
 def dataPreparation(data_dir="./data"):
     path = os.path.join(data_dir, "filtered_meta_Electronics.json")
@@ -51,7 +52,7 @@ def train_tune(config, checkpoint_dir=None, data_dir=None):
         optimizer.load_state_dict(optimizer_state)
 
 
-    for t in range(4):
+    for t in range(5):
         running_loss = 0.0
         epoch_steps = 0
         for i, data in enumerate(dataloader_train):
@@ -85,9 +86,11 @@ def train_tune(config, checkpoint_dir=None, data_dir=None):
 
         tune.report(loss=val_loss)
 
-def train(epochs, config, data_dir=None):
+def train(epochs, config, data_dir=None, from_checkpoint=False, path=None):
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     model = ProductRanker(config["l1"],config["l2"]).to(device)
+    logging.basicConfig(filename='outputs/training.log', filemode='w', format='%(asctime)s %(message)s',
+                        encoding='utf-8', level=logging.DEBUG)
 
     train_set, val_set = dataPreparation(data_dir)
     dataloader_train = createDataloader(train_set, config)
@@ -96,35 +99,44 @@ def train(epochs, config, data_dir=None):
     optimizer = torch.optim.Adam(model.parameters(), lr=config["lr"], betas=(0.9, 0.999), eps=1e-08, weight_decay=0,
                                 amsgrad=False)
 
+    if from_checkpoint:
+        checkpoint = torch.load(path)
+        model.load_state_dict(checkpoint['model_state_dict'])
+        optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+        epoch = checkpoint['epoch']
+        checkpoint_loss = checkpoint['loss']
+
+        print("Starting from checkpoint (epoch %d, loss %d)" % (epoch, checkpoint_loss))
+
     print("Starting training loop...")
-    for t in range(2):
+    logging.info("Starting training loop...")
+    for t in range(epochs):
         print(f"Epoch {t + 1}\n-------------------------------")
-        running_loss = 0.0
-        epoch_steps = 0
-        for i, data in enumerate(dataloader_train):
-            X, y = data
+        logging.info("Epoch {t + 1}\n-------------------------------")
+        train_loss = 0.0
+        for X,y in dataloader_train:
             input_ids_1 = X[0]['input_ids'].squeeze().to(device)
             attention_mask_1 = X[0]['attention_mask'].squeeze().to(device)
             input_ids_2 = X[1]['input_ids'].squeeze().to(device)
             attention_mask_2 = X[1]['attention_mask'].squeeze().to(device)
+
+            optimizer.zero_grad()
             out1 = model.forward(input_ids_1, attention_mask_1)
             out2 = model.forward(input_ids_2, attention_mask_2)
             diff = (out1 - out2).squeeze()
             diff = torch.sigmoid(diff).to(device)
             loss = loss_fn(diff, y.float().to(device))
 
-            optimizer.zero_grad()
             loss.backward()
             optimizer.step()
 
-            running_loss += loss.item()
-            epoch_steps += 1
-            if i % 600 == 599:  # print every 2000 mini-batches
-                print("[%d, %5d] loss: %.6f" % (t + 1, i + 1, running_loss / epoch_steps))
-                running_loss = 0.0
+            train_loss += loss.item()
 
+        print(f'Epoch {t + 1} \t\t Training Loss: {train_loss / len(dataloader_train)}')
+        logging.info("[%d] train loss: %.10f" % (t + 1, train_loss / len(dataloader_train)))
         val_loss = val(dataloader_val, model, loss_fn, device)
-        print("[%d] val loss: %.6f" % (t+1, val_loss))
+        print(f'Epoch {t + 1} \t\t Validation Loss: {val_loss}')
+        logging.info("[%d] val loss: %.10f" % (t+1, val_loss))
 
         path = 'outputs/model_' + str(t+1) + '.pth'
         torch.save({
@@ -136,11 +148,11 @@ def train(epochs, config, data_dir=None):
         print("Model saved..")
 
     print("Training finished!")
+    logging.info("Training finished!")
 
 
 def val(dataloader, model, loss_fn, device):
         val_loss = 0.0
-        val_steps = 0
         for X, y in dataloader:
             with torch.no_grad():
                 input_ids_1 = X[0]['input_ids'].squeeze().to(device)
@@ -153,9 +165,8 @@ def val(dataloader, model, loss_fn, device):
                 diff = torch.sigmoid(diff)
                 loss = loss_fn(diff, y.float().to(device))
                 val_loss += loss.cpu().numpy()
-                val_steps += 1
 
-        return (val_loss / val_steps)
+        return (val_loss/len(dataloader))
 
 
 '''def save_model(t, model, optimizer, loss):
