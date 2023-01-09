@@ -1,0 +1,3 @@
+We use the Amazon product dataset for our project. The dataset has product reviews, metadata, and 142.8 million reviews from 1996 to 2014. The reviews include ratings, text, and helpfulness votes. The metadata contains descriptions, category information, price, brand, images, and features. For our project, we filtered the subset "Electronics" which resulted in a total of 57,302 records.[1]
+
+[1] Ups and downs: Modeling the visual evolution of fashion trends with one-class collaborative filtering, R. He, J. McAuley, WWW, 2016
